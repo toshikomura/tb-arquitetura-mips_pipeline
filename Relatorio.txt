@@ -1,0 +1,220 @@
+Nome: Gustavo Toshi Komura e Michael Liang
+GRR GRR20102342 e GRR20094276
+
+Relatório 
+
+COMPILANDO E FAZENDO TESTES
+
+	Para facilitar testes adicionamos um script..
+	rom.sh - No terminal, ao ser digitado “./rom.sh” a geração da rom.vhd, compilação de todos os arquivos .vhd e a abertura do gtkwave são executados em sequência, lógicamente que para o funcionamento correto, se dá aos arquivos já existentes, de geração de rom e makefile.
+
+TEMPO GASTO NA IMPLEMENTAÇÃO
+
+	Por dia ficavamos 3 horas fazendo este trabalho, não necessariamente todos os dias pois tinhamos que fazer outros trabalhos. Em média ficamos no total de 30 horas para terminar este trabalho.
+
+
+IMPLEMENTAÇÃO
+
+	-> ADDI
+
+		As medidas tomadas para a implementação desta instrução foram simples. A primeira ação realizada foi a de inserir o ADDI na lista do basic_types.vhd. Depois foi só implementar os sinais do ADDI no control_pipeline.vhd.
+
+	 		when ADDI => RegDst <= '0'; ALUSrc <= '1'; MemtoReg <= '0'; RegWrite <='1'; MemRead<='0'; MemWrite<='0'; Branch<='0'; ALUOp <= "00"; PCSrc <= '0'; JRSrc <= 'X'; JALSrc <= '0'; RegDst_JAL <= '0'; rst_jumps <= '0';
+
+		Checar OBSERVAÇÕES no final do relatório, pois houve alguns problemas nos testes com relação a imediatos negativos.
+
+	-> JR e JAL
+
+		 Ambos exigiram um pouco mais para se implementar, nós optamos por realizar a implementação do J (Jump) primeiro, pois existia a possibilidade de facilitar a implementação das outras instruções de salto.
+
+		 Ambos foram colocados na lista de instruções básicas do processador (basic_types.vhd), como feito com ADDI anteriormente.
+
+		 Os saltos no processador segmentado são realizados no estagio do ID (como foi pedido no enuciado), mas para que isso seja possivel tivemos de criar alguns sinais em outros estágios.
+
+		 -- IF Signal Declarations (Sinais do extagio IF)
+
+			 signal IF_pc4_or_j : reg32 := (others => '0'); -- JUMP AND JAL
+			 	Este sinal é a saida do mux que define se aconteceu o pc + 4  ou um jump.
+
+			 signal IF_j_or_jr: reg32; -- JR
+				 Este sinal é a saida do mux que define se aconteceu o jump ou um jump register.
+
+		 -- ID Signal Declarations (Sinais do extagio ID)
+
+			 signal ID_immed: std_logic_vector(15 downto 0); -- FUNC TO JR
+				 Vetor que  receberá o imediato.
+
+			 signal ID_PCSrc: std_logic; -- JUMP AND JAL
+				 Sinal do seletor do mux (MX3), que define se passará pc+4,jump ou jump register, vale destacar que esse valor só vai para o mux quando ele chegar na etapa EX.
+
+			 signal ID_pc_j: reg32; -- JUMP AND JAL
+			 	Sinal que recebe o valor dos 4 bits mais significativos de pc+4, concatenado com, o imediato shiftado em 2, entrada do mux (MX4), vale destacar que esse valor só vai para o mux quando ele chegar na etapa EX.       
+
+			 signal ID_JRSrc: std_logic; -- JR
+			 	Sinal do seletor do mux (MX4), que define se passará jump ou jump register, valel destacar que esse valor só vai para o mux quando ele chegar na etapa EX.
+
+			 signal ID_JALSrc: std_logic; -- JAL
+			 	Sinal do seletor do mux (MUX_DEST_JAL), que define se passará a saída da ULA ou PC + 4, ou seja, algum registrador registrador recebe valor da saida da ULA ou registrador 31, recebe o valor para que JR possa usar, vale destacar que esse valor só vai para o mux quando ele chegar na etapa WB.
+
+			 signal ID_RegDst_Jal: std_logic; -- JAL
+			 	Sinal do seletor do mux (MUX_DEST_JAL), que define em que registrador será gravado os dados passados, no caso RT ou o Registrador 31, vale destacar que esse valor só vai para o mux quando ele chegar na etapa EX.
+
+			 signal ID_reset_jumps: std_logic; -- JUMP
+				 Sinal para realizar o STALL, quando as instruções de desvio passam pela etapa ID e é necessário saltar, somos obrigados a dar um STALL no procesador, pois a instrução que estava em IF é inútil.
+
+			-- EX Signals (Sinais do extagio EX)
+
+				 signal EX_JALSrc: std_logic; -- JAL
+					 Sinal que recebe ID_JALSrc, vale destacar que esse valor só vai para o mux (MUX_DEST_JAL), quando ele chegar na etapa WB.
+
+				 signal EX_RegDst_Jal: std_logic; -- JAL
+					 Sinal que recebe ID_RegDst_Jal. Entrada do mux (MUX_DEST_JAL), que define em que registrador será gravado os dados passados, no caso RT ou o Registrador 31,
+
+				 signal EX_rt_or_RegDst_Jal: std_logic_vector(4 downto 0); -- JAL
+					 Sinal de saída do mux (DEST_MUX2_JAL), que conterá o valor de RT ou do Registrador 31.
+
+				 signal EX_JRSrc: std_logic; -- JR
+					 Sinal que recebe o ID_JRSrc. Entrada do mux (MX4), que define se passará jump ou jump register.
+
+				 signal EX_pc_j: reg32; -- JUMP
+					 Sinal que recebe o ID_pc_j. Entrada do mux (MX4), que recebe os 4 bits mais significativos de PC + 4, concatenado com, o imediato shiftado em 2.
+
+				 signal EX_PCSrc: std_logic; -- JUMP OR JAL
+					 Sinal  que recebe o ID_PCSrc. Entrada do mux (MX3), que define se passará pc+4,jump ou jump register,
+
+		-- MEM Signals (Sinais do extagio MEM)
+
+			 signal MEM_pc4: reg32; -- JAL
+				 Sinal que recebe PC + 4, vale destacar que esse valor só vai para o mux (MUX_DEST_JAL) quando ele chegar na etapa WB.
+
+			 signal MEM_JALSrc: std_logic; -- JAL
+				 Sinal que recebe o EX_JALSrc, vale destacar que esse valor só vai para o mux (MUX_DEST_JAL) quando ele chegar na etapa WB.
+
+		-- WB Signals (Sinais do extagio WB)
+
+			 signal WB_pc4: reg32; -- JAL
+				 Sinal que recebe MEM_pc4.. Entrada do mux (MUX_DEST_JAL).
+
+			 signal WB_JALSrc: std_logic; -- JAL
+				 Sinal que recebe MEM_JALSrc. Entrado do mux (MUX_DEST_JAL), que define se passará a saída da ULA ou PC + 4.
+
+			 signal WB_ALUOut_or_pc4: reg32; -- JAL
+				 Sinal que recebe ALUout ou pc + 4. Saida do mux (MUX_DEST_JAL).
+
+		 Com adição de sinais de controle houve a necessidade de se alterar o control_pipeline.vhd. para que ele determinasse quais os sinais que vão ser usados.
+
+	-> BEQ
+
+		 O BEQ foi puxado para o estagio ID, e para isso precisamos de uma lógica de comparação, para verificar se os dados são iguais ou não, processo realizado antigamente pela ULA.
+		 Na estrutura lógica foi criado um sinal que será a entrada de um AND que analisará se a instrução é BEQ e se os valores são iguais.
+		 Se a resposta do AND for ‘1’ a instrução segue como se fosse uma instrução J, senão ela segue no pipeline sem fazer nada.
+
+		->Tratamento do Hazard de Desvio
+
+			 Como as instruções que realizam desvios são efetuadas no estágio ID, nós optamos em implementar os tratamentos de de riscos de desvios neste mesmo estagio.
+
+			 Partimos da idéia que sempre irá desviar, por isso calculamos todos os possíveis desvios (J, JR, JAL, BEQ) e como a instrução é identificada no ID, se for uma das instruções de desvio no próximo clock executa o STALL e envia o valor calculado para PC.
+
+			-- ID Signal Declarations
+
+				signal ID_BEQSrc: std_logic; -- BEQ ID
+					Recebe o "ID_Branch_compare AND ID_Branch_control", isto é, se for BEQ e os valores comparados são iguais, este sinal recebe ‘1’ e o Pc receberá o salto do BEQ, senão PC recebe os outros casos, vale destacar que esse valor só vai para o mux (MX2) quando ele chegar na etapa EX.
+
+				 signal ID_btgt: reg32; -- BEQ ID
+					 É o registrador que recebe o endereço de um possível desvio do BEQ, vale destacar que esse valor só vai para o mux (MX2) quando ele chegar na etapa EX.
+
+				 signal ID_offset: reg32; -- BEQ ID
+					 Este sinal é o OFFSET, porém no ID, pois antes ele era no EX.
+
+				 signal ID_Branch_compare, ID_Branch_control: std_logic; -- BEQ
+					 ID_Branch_compare = Sinal que recebe ‘1’ se os valores comparados são iguais e ‘0’ se diferentes.            
+					 ID_Branch_control = Sinal que recebe ‘1’ se for BEQ e ‘0’ senão for BEQ.
+
+				 signal ID_IME_op: std_logic; -- BEQ
+				 	Sinal que recebe ‘1’ se o imediato for um valor negativo caso contrario ele recebe ‘0’.
+
+					   
+
+			-- EX Signals
+
+				 signal EX_BEQSrc: std_logic := '0'; -- BEQ ID
+					 Sinal que recebe ID_BEQSrc. Entrada do mux (MX2), que define se passara o salto de BEQ, pc + 4, salto de J ou salto de JR.
+
+				 signal EX_btgt: reg32; -- BEQ
+				 	Sinal que recebe ID_btgt. Entrada do mux (MX2), que define o endereço de um possível desvio do BEQ.
+
+	-> FORWARD
+
+		 A implementação do adiantamento foi feita a partir da ideia de que apenas seria necessário puxar um cabo para as entradas da ULA.
+		 Os sinais criados foram:
+
+		-- EX Signals
+
+			 signal EX_rs: std_logic_vector(4 downto 0); -- FORWARD
+		 		Sinal que recebe o valor de RS, anteriormente este valor não era passado para EX.
+
+			 signal EX_fwd_A, EX_fwd_B: std_logic_vector(1 downto 0); -- FORWARD
+				 Entrada do mux (MUX_FORWARD_A e MUX_FORWARD_B), que define se seleciona o valor que vem do banco de registradores ou os adiantamentos da ULA/MEM ou adiantamento MEM/WB para a origem da entrada A e B da ULA.
+
+			 signal EX_fwd_A_out, EX_fwd_B_out: reg32; -- FORWARD
+				 A saida do mux (MUX_FORWARD_A e MUX_FORWARD_B).
+
+		 Assim como foi feito nos JUMPS, aqui também foi necessário adicionar os sinais de controle no control_pipeline.vhd.
+
+		 Além disso implementamos o "FORWARD: entity work.forward port map (EX_rs, EX_rt, MEM_RegWrite, MEM_RegRd, WB_RegWrite, WB_RegRd, EX_fwd_A, EX_fwd_B);" que receberá os sinais de controle que ira decidir se acontecerá adiantamento.
+
+	-> ESTRUTURAS QUE FORAM ADICIONADAS
+
+		ETAPA IF
+			 MX4 - Responsável por selecionar o salto do JUMP ou o salto do JR.
+			 MX3 - Responsável por selecionar o PC + 4 ou a saida do MX4.
+
+		ETAPA ID
+		 	COMPARE - Responsável por comparar as saidas A  e B do banco de registradores na etapa ID.
+
+		ETAPA EX
+			 FORWARD - Responsável por verificar se existe a necessidade de se fazer o adiantamento.
+			 MUX_FORWARD_A - Responsável por selecionar qual vai ser a enrada A da ULA.
+			 MUX_FORWARD_B - Responsável por selecionar qual vai ser a enrada B da ULA.
+			 DEST_MUX2_JAL - Responsável por selecionar qual vai ser o registrador de destino 31 ou o da instrução.
+			 MUX_DEST_JAL - Responsável por selecionar a saida da ULA ou PC + 4.
+
+	-> OBSERVAÇÕES
+
+ 		*   Durante os testes reparamos que seria necessário criar uma lógica para tratar números negativos, pois em algumas operações, os resultados não eram corretos, e por esse motivo realizamos algumas alterações no extensão de sinal.
+
+	 -- sign-extender
+	 EXT: process(ID_immed)
+	 begin
+
+	if ID_immed(15) = '1' then
+
+	ID_extend <= x"0000" & ((not ID_immed(15 downto 0) )+ 1);
+
+	ID_IME_op<= '1';
+
+	else
+
+	ID_extend <= x"0000" & ID_immed(15 downto 0);
+
+	ID_IME_op <= '0';
+
+	end if;
+	 end process;
+
+   
+	 Com esta alteração, a ULA passou a trabalhar em complemento de dois.
+
+	 ID_IME_op
+	 Este sinal informa a ULA se o valor imediato é positivo ‘0’ ou negativo ‘1’.
+
+	 No control_pipeline.vhd quando a iinstrução for ADDI (operação de um registrador com imediato) é verificado se o ID_IME_op é  ‘1’ então a operação na ULA é subtração, ou se o ID_IME_op é ‘0’ então a operação é soma.
+
+	   
+	 *  Uma instrução JAL seguida de uma instrução JR
+	 O problema, neste caso, é com relação ao valor do registrador 31 contendo PC + 4. Em nossa implementação, o valor de PC + 4 só é gravado no registrador 31 no quinto ciclo da instrução JAL. Se no salto de JAL a próxima instrução a ser executada for o JR, quando JR estiver  na etapa ID, vai tentar obter o conteudo do registrador 31 para saltar, mas o JAL ainda não gravou o valor PC + 4, pois ainda esta na etapa MEM, isto é, faltam dois ciclos ou um ciclo e meio considerando que a escrita é feita na primeira metade do clock para que o registrador 31 contenha o valor correto do salto.
+
+	 Para isso poderia ter sido colocado 2 stalls, o stall normal de salto e mais um, no entanto se a próxima instrução na for JR, não haveria nenhum problema e este tempo dos stalls seria um desperdicio. Então estava sendo estudado a possibilidade de se implementar, além do adiantamento para ULA, implementar um adiantamento para especifica instrução JR,  na etap ID, isto é,  seria colocado uma verificação na estrutura FORWARD desta forma, se na etapa ID contivesse uma instrução JR e se na etapa MEM contivesse uma instrução JAL, ao invés de JR pegar o valor do registrador 31, ele iria pegar o valor de registrador de destino da instrução JAL para saltar.
+
+	Acabamos por não implementar este adiantamento, pois o tempo para entrega do trabalho estava perto, considerando a data que nós descobrimos este erro.
+
