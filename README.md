@@ -1,4 +1,4 @@
-tbmips_pipeline
+tb-arquitetura-mips_pipeline
 ===============
 
 Trabalho de Arquitetura 
